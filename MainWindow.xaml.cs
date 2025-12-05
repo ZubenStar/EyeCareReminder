@@ -33,8 +33,8 @@ namespace EyeCareReminder
         
         // Window size states
         private RectInt32 normalSize;
-        private RectInt32 compactSize;
-        private bool isCompactMode = false;
+        private RectInt32 miniSize;
+        private bool isMiniMode = false;
 
         public MainWindow()
         {
@@ -68,10 +68,10 @@ namespace EyeCareReminder
                 
                 normalSize = new RectInt32(x, y, normalWidth, normalHeight);
                 
-                // Compact size (small timer display)
-                var compactWidth = 180;
-                var compactHeight = 80;
-                compactSize = new RectInt32(workArea.Width - compactWidth - 20, workArea.Height - compactHeight - 60, compactWidth, compactHeight);
+                // Mini mode size (small timer display only) - positioned in bottom right corner
+                var miniWidth = 180;
+                var miniHeight = 80;
+                miniSize = new RectInt32(workArea.Width - miniWidth - 20, workArea.Height - miniHeight - 60, miniWidth, miniHeight);
                 
                 appWindow.MoveAndResize(normalSize);
                 
@@ -81,11 +81,27 @@ namespace EyeCareReminder
             
             // Add double-click handler to switch modes
             this.Content.DoubleTapped += Content_DoubleTapped;
+            
+            // Initialize mini mode button text
+            UpdateMiniModeButtonText();
         }
 
         private void Content_DoubleTapped(object sender, Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs e)
         {
-            ToggleCompactMode();
+            ToggleMiniMode();
+        }
+
+        private void UpdateMiniModeButtonText()
+        {
+            if (MiniModeButton != null)
+            {
+                MiniModeButton.Content = isMiniMode ? "🖥️ Normal Mode" : "🪟 Mini Mode";
+            }
+        }
+
+        private void MiniModeButton_Click(object sender, RoutedEventArgs e)
+        {
+            ToggleMiniMode();
         }
 
         private void AppWindow_Changed(AppWindow sender, AppWindowChangedEventArgs args)
@@ -97,38 +113,53 @@ namespace EyeCareReminder
             }
         }
 
-        private void ToggleCompactMode()
+        private void ToggleMiniMode()
         {
-            isCompactMode = !isCompactMode;
+            isMiniMode = !isMiniMode;
+            UpdateMiniModeButtonText();
             
-            if (isCompactMode)
+            if (isMiniMode)
             {
-                // Switch to compact mode
-                appWindow.MoveAndResize(compactSize);
+                // Switch to mini mode - show only timer
+                appWindow.MoveAndResize(miniSize);
+                // Hide all UI elements except timer
                 TitleTextBlock.Visibility = Visibility.Collapsed;
                 StatusBorder.Visibility = Visibility.Collapsed;
                 ControlButtonsPanel.Visibility = Visibility.Collapsed;
+                MiniModeButton.Visibility = Visibility.Collapsed;
                 SettingsButton.Visibility = Visibility.Collapsed;
-                TimerViewbox.Margin = new Thickness(0);
                 
-                // Make timer text larger in compact mode
+                // Adjust timer for mini mode - center it with minimal padding
+                TimerViewbox.Margin = new Thickness(4);
+                TimerViewbox.VerticalAlignment = VerticalAlignment.Center;
+                TimerViewbox.HorizontalAlignment = HorizontalAlignment.Center;
+                
+                // Make timer text larger and more prominent for mini mode
                 TimerText.FontSize = 28;
+                TimerText.FontWeight = new Windows.UI.Text.FontWeight(700);
                 PhaseText.Visibility = Visibility.Collapsed;
-                ProgressRing.Width = 70;
-                ProgressRing.Height = 70;
+                ProgressRing.Width = 50;
+                ProgressRing.Height = 50;
             }
             else
             {
                 // Switch to normal mode
                 appWindow.MoveAndResize(normalSize);
+                // Show all UI elements
                 TitleTextBlock.Visibility = Visibility.Visible;
                 StatusBorder.Visibility = Visibility.Visible;
                 ControlButtonsPanel.Visibility = Visibility.Visible;
+                MiniModeButton.Visibility = Visibility.Visible;
                 SettingsButton.Visibility = Visibility.Visible;
-                TimerViewbox.Margin = new Thickness(0, 12, 0, 12);
                 
-                // Restore timer text size
+                // Restore normal timer layout
+                TimerViewbox.Margin = new Thickness(0, 12, 0, 12);
+                TimerViewbox.VerticalAlignment = VerticalAlignment.Stretch;
+                TimerViewbox.HorizontalAlignment = HorizontalAlignment.Stretch;
+                
+                // Restore timer text size and weight
                 TimerText.FontSize = 32;
+                TimerText.FontWeight = new Windows.UI.Text.FontWeight(700);
                 PhaseText.Visibility = Visibility.Visible;
                 ProgressRing.Width = 120;
                 ProgressRing.Height = 120;

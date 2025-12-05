@@ -106,13 +106,21 @@
                 MinWidth="90"/>
         </StackPanel>
 
-        <!-- Settings Button -->
-        <Button
-            x:Name="SettingsButton"
+        <!-- Bottom Buttons -->
+        <StackPanel
             Grid.Row="4"
-            Content="⚙️ Settings"
-            Click="SettingsButton_Click"
+            Orientation="Horizontal"
             HorizontalAlignment="Center"
-            Margin="0,8,0,0"/>
+            Spacing="8"
+            Margin="0,8,0,0">
+            <Button
+                x:Name="MiniModeButton"
+                Content="🪟 Mini Mode"
+                Click="MiniModeButton_Click"/>
+            <Button
+                x:Name="SettingsButton"
+                Content="⚙️ Settings"
+                Click="SettingsButton_Click"/>
+        </StackPanel>
     </Grid>
 </Window>

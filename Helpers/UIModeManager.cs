@@ -42,6 +42,7 @@ namespace EyeCareReminder.Helpers
         public void ToggleMode()
         {
             _isMiniMode = !_isMiniMode;
+            System.Diagnostics.Debug.WriteLine($"UIModeManager: Toggling to {(_isMiniMode ? "mini" : "normal")} mode");
             ApplyMode();
         }
 
@@ -75,35 +76,61 @@ namespace EyeCareReminder.Helpers
 
             if (_isMiniMode)
             {
+                System.Diagnostics.Debug.WriteLine("UIModeManager: Applying mini mode");
                 ApplyMiniMode();
             }
             else
             {
+                System.Diagnostics.Debug.WriteLine("UIModeManager: Applying normal mode");
                 ApplyNormalMode();
             }
         }
 
         private void ApplyMiniMode()
         {
-            // Hide all normal mode elements
+            System.Diagnostics.Debug.WriteLine("UIModeManager: Applying mini mode");
+            
+            // Hide all normal mode elements except the mini mode button
             foreach (var element in _normalModeElements)
             {
-                element.Visibility = Visibility.Collapsed;
+                if (element != _miniModeButton)
+                {
+                    element.Visibility = Visibility.Collapsed;
+                }
             }
 
-            // Configure timer for mini mode
+            // Ensure the mini mode button is visible and positioned
+            _miniModeButton.Visibility = Visibility.Visible;
+            _miniModeButton.Margin = new Thickness(5);
+            _miniModeButton.HorizontalAlignment = HorizontalAlignment.Center;
+
+            // Ensure timer container is visible
+            _timerContainer.Visibility = Visibility.Visible;
+
+            // Configure timer for mini mode with better sizing
             if (_timerContainer is FrameworkElement timerFramework)
             {
-                timerFramework.Margin = new Thickness(4);
+                timerFramework.Margin = new Thickness(5);
                 timerFramework.VerticalAlignment = VerticalAlignment.Center;
                 timerFramework.HorizontalAlignment = HorizontalAlignment.Center;
             }
 
-            _timerText.FontSize = 28;
+            // Configure timer text
+            _timerText.Visibility = Visibility.Visible;
+            _timerText.FontSize = 20;
             _timerText.FontWeight = new Windows.UI.Text.FontWeight(700);
+            _timerText.Margin = new Thickness(0);
+
+            // Hide phase text in mini mode
             _phaseText.Visibility = Visibility.Collapsed;
+
+            // Configure progress ring
+            _progressRing.Visibility = Visibility.Visible;
             _progressRing.Width = 50;
             _progressRing.Height = 50;
+            _progressRing.Margin = new Thickness(0);
+            
+            System.Diagnostics.Debug.WriteLine("UIModeManager: Mini mode applied successfully");
         }
 
         private void ApplyNormalMode()

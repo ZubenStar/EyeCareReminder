@@ -20,8 +20,8 @@ namespace EyeCareReminder.Services
         // Window dimensions
         public const int NormalWidth = 320;
         public const int NormalHeight = 280;
-        public const int MiniWidth = 180;
-        public const int MiniHeight = 80;
+        public const int MiniWidth = 200;
+        public const int MiniHeight = 100;
         public const int MiniMarginRight = 20;
         public const int MiniMarginBottom = 60;
 
@@ -99,15 +99,69 @@ namespace EyeCareReminder.Services
         /// </summary>
         public void SwitchToNormalMode()
         {
-            _appWindow.MoveAndResize(_normalSize);
+            try
+            {
+                if (_appWindow == null) return;
+                _appWindow.MoveAndResize(_normalSize);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error switching to normal mode: {ex.Message}");
+            }
         }
 
         /// <summary>
         /// Switches to mini mode
         /// </summary>
-        public void SwitchToMiniMode()
+        public async System.Threading.Tasks.Task SwitchToMiniMode()
         {
-            _appWindow.MoveAndResize(_miniSize);
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("WindowManager: Starting switch to mini mode");
+                
+                // Check if window is still valid
+                if (_appWindow == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("WindowManager: AppWindow is null");
+                    return;
+                }
+                
+                // Create a slightly larger mini mode size to ensure content is visible
+                var windowId = Win32Interop.GetWindowIdFromWindow(_hWnd);
+                var displayArea = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
+                var workArea = displayArea.WorkArea;
+                
+                // Calculate bottom-right mini position with larger size
+                var largerMiniWidth = 220;
+                var largerMiniHeight = 120;
+                var miniX = workArea.Width - largerMiniWidth - MiniMarginRight;
+                var miniY = workArea.Height - largerMiniHeight - MiniMarginBottom;
+                var largerMiniSize = new RectInt32(miniX, miniY, largerMiniWidth, largerMiniHeight);
+                
+                // First ensure the window content is ready for mini mode
+                await System.Threading.Tasks.Task.Delay(50);
+                
+                // Check again before resizing
+                if (_appWindow == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("WindowManager: AppWindow became null during delay");
+                    return;
+                }
+                
+                // Then resize the window
+                System.Diagnostics.Debug.WriteLine($"WindowManager: Resizing to mini mode: {largerMiniSize.Width}x{largerMiniSize.Height} at ({largerMiniSize.X},{largerMiniSize.Y})");
+                _appWindow.MoveAndResize(largerMiniSize);
+                
+                // Force a layout update after resize
+                await System.Threading.Tasks.Task.Delay(50);
+                
+                System.Diagnostics.Debug.WriteLine("WindowManager: Successfully switched to mini mode");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"WindowManager: Error switching to mini mode: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"WindowManager: Stack trace: {ex.StackTrace}");
+            }
         }
 
         /// <summary>

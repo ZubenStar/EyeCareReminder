@@ -83,26 +83,83 @@ namespace EyeCareReminder
         /// </summary>
         private void Window_Activated(object sender, Microsoft.UI.Xaml.WindowActivatedEventArgs e)
         {
+            try
+            {
+                InitializeNotificationService();
+                InitializeUIModeManager();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in Window_Activated: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+            }
+        }
+
+        /// <summary>
+        /// Initializes the notification service
+        /// </summary>
+        private void InitializeNotificationService()
+        {
             // Initialize only once
             if (_notificationService != null) return;
             
-            _notificationService = new NotificationService(this.Content.XamlRoot);
+            try
+            {
+                // Ensure window content is available before accessing XamlRoot
+                if (this.Content == null || this.Content.XamlRoot == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("Window content or XamlRoot is null");
+                    return;
+                }
+                
+                _notificationService = new NotificationService(this.Content.XamlRoot);
+                System.Diagnostics.Debug.WriteLine("Notification service initialized successfully");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error initializing notification service: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Initializes the UI mode manager
+        /// </summary>
+        private void InitializeUIModeManager()
+        {
+            // Initialize only once
+            if (_uiModeManager != null) return;
             
-            _uiModeManager = new UIModeManager(
-                normalModeElements: new UIElement[] 
-                { 
-                    TitleTextBlock, 
-                    StatusBorder, 
-                    ControlButtonsPanel, 
-                    MiniModeButton, 
-                    SettingsButton 
-                },
-                timerContainer: TimerViewbox,
-                timerText: TimerText,
-                phaseText: PhaseText,
-                progressRing: ProgressRing,
-                miniModeButton: MiniModeButton
-            );
+            try
+            {
+                // Ensure window content is available before accessing XamlRoot
+                if (this.Content == null || this.Content.XamlRoot == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("Window content or XamlRoot is null");
+                    return;
+                }
+                
+                _uiModeManager = new UIModeManager(
+                    normalModeElements: new UIElement[]
+                    {
+                        TitleTextBlock,
+                        StatusBorder,
+                        ControlButtonsPanel,
+                        SettingsButton
+                    },
+                    timerContainer: TimerViewbox,
+                    timerText: TimerText,
+                    phaseText: PhaseText,
+                    progressRing: ProgressRing,
+                    miniModeButton: MiniModeButton
+                );
+                
+                System.Diagnostics.Debug.WriteLine("UI mode manager initialized successfully");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error initializing UI mode manager: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+            }
         }
 
         /// <summary>
@@ -217,19 +274,59 @@ namespace EyeCareReminder
         /// <summary>
         /// Toggles between normal and mini mode
         /// </summary>
-        private void ToggleMiniMode()
+        private async void ToggleMiniMode()
         {
-            if (_uiModeManager == null) return;
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("ToggleMiniMode called");
+                
+                // Ensure services are initialized
+                if (_uiModeManager == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("UI mode manager is null, initializing...");
+                    InitializeUIModeManager();
+                    
+                    if (_uiModeManager == null)
+                    {
+                        System.Diagnostics.Debug.WriteLine("Failed to initialize UI mode manager");
+                        return;
+                    }
+                }
+                
+                if (_windowManager == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("Window manager is null");
+                    return;
+                }
+                
+                // Verify window content is still available
+                if (this.Content == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("Window content is null");
+                    return;
+                }
 
-            _uiModeManager.ToggleMode();
-            
-            if (_uiModeManager.IsMiniMode)
-            {
-                _windowManager.SwitchToMiniMode();
+                System.Diagnostics.Debug.WriteLine("Toggling mini mode...");
+                _uiModeManager.ToggleMode();
+                
+                // Small delay to ensure UI updates complete before window resize
+                await System.Threading.Tasks.Task.Delay(100);
+                
+                if (_uiModeManager.IsMiniMode)
+                {
+                    System.Diagnostics.Debug.WriteLine("Switching to mini mode");
+                    await _windowManager.SwitchToMiniMode();
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("Switching to normal mode");
+                    _windowManager.SwitchToNormalMode();
+                }
             }
-            else
+            catch (Exception ex)
             {
-                _windowManager.SwitchToNormalMode();
+                System.Diagnostics.Debug.WriteLine($"Error toggling mini mode: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
             }
         }
 
@@ -260,6 +357,15 @@ namespace EyeCareReminder
 
         private void MiniModeButton_Click(object sender, RoutedEventArgs e)
         {
+            System.Diagnostics.Debug.WriteLine("MiniModeButton_Click called");
+            
+            // Ensure UI mode manager is initialized
+            if (_uiModeManager == null)
+            {
+                System.Diagnostics.Debug.WriteLine("Initializing UI mode manager on button click");
+                InitializeUIModeManager();
+            }
+            
             ToggleMiniMode();
         }
 

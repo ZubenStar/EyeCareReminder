@@ -22,7 +22,8 @@
         </Grid.RowDefinitions>
 
         <!-- Title -->
-        <TextBlock 
+        <TextBlock
+            x:Name="TitleTextBlock"
             Grid.Row="0"
             Text="👁️ Eye Care Reminder"
             FontSize="20"
@@ -31,7 +32,8 @@
             Margin="0,0,0,8"/>
 
         <!-- Status Display -->
-        <Border 
+        <Border
+            x:Name="StatusBorder"
             Grid.Row="1"
             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
             CornerRadius="8"
@@ -45,7 +47,8 @@
         </Border>
 
         <!-- Timer Display -->
-        <Viewbox 
+        <Viewbox
+            x:Name="TimerViewbox"
             Grid.Row="2"
             Stretch="Uniform"
             Margin="0,12,0,12">
@@ -78,7 +81,8 @@
         </Viewbox>
 
         <!-- Control Buttons -->
-        <StackPanel 
+        <StackPanel
+            x:Name="ControlButtonsPanel"
             Grid.Row="3"
             Orientation="Horizontal"
             HorizontalAlignment="Center"
@@ -103,7 +107,8 @@
         </StackPanel>
 
         <!-- Settings Button -->
-        <Button 
+        <Button
+            x:Name="SettingsButton"
             Grid.Row="4"
             Content="⚙️ Settings"
             Click="SettingsButton_Click"

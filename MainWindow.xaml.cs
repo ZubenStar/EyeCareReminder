@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using Windows.Media.Core;
 using Windows.Media.Playback;
 using WinRT.Interop;
+using Windows.Graphics;
 
 namespace EyeCareReminder
 {
@@ -29,6 +30,11 @@ namespace EyeCareReminder
         // Window handle for topmost
         private IntPtr hWnd;
         private AppWindow appWindow = default!;
+        
+        // Window size states
+        private RectInt32 normalSize;
+        private RectInt32 compactSize;
+        private bool isCompactMode = false;
 
         public MainWindow()
         {
@@ -48,17 +54,84 @@ namespace EyeCareReminder
             // Set window to always on top
             SetWindowTopMost(true);
 
-            // Center the window
+            // Center the window and set sizes
             if (appWindow != null)
             {
                 var displayArea = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
                 var workArea = displayArea.WorkArea;
-                var width = 320;
-                var height = 280;
-                var x = (workArea.Width - width) / 2;
-                var y = (workArea.Height - height) / 2;
                 
-                appWindow.MoveAndResize(new Windows.Graphics.RectInt32(x, y, width, height));
+                // Normal size
+                var normalWidth = 320;
+                var normalHeight = 280;
+                var x = (workArea.Width - normalWidth) / 2;
+                var y = (workArea.Height - normalHeight) / 2;
+                
+                normalSize = new RectInt32(x, y, normalWidth, normalHeight);
+                
+                // Compact size (small timer display)
+                var compactWidth = 180;
+                var compactHeight = 80;
+                compactSize = new RectInt32(workArea.Width - compactWidth - 20, workArea.Height - compactHeight - 60, compactWidth, compactHeight);
+                
+                appWindow.MoveAndResize(normalSize);
+                
+                // Listen for window resize
+                appWindow.Changed += AppWindow_Changed;
+            }
+            
+            // Add double-click handler to switch modes
+            this.Content.DoubleTapped += Content_DoubleTapped;
+        }
+
+        private void Content_DoubleTapped(object sender, Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs e)
+        {
+            ToggleCompactMode();
+        }
+
+        private void AppWindow_Changed(AppWindow sender, AppWindowChangedEventArgs args)
+        {
+            // Keep window always on top
+            if (args.DidPresenterChange || args.DidSizeChange)
+            {
+                SetWindowTopMost(true);
+            }
+        }
+
+        private void ToggleCompactMode()
+        {
+            isCompactMode = !isCompactMode;
+            
+            if (isCompactMode)
+            {
+                // Switch to compact mode
+                appWindow.MoveAndResize(compactSize);
+                TitleTextBlock.Visibility = Visibility.Collapsed;
+                StatusBorder.Visibility = Visibility.Collapsed;
+                ControlButtonsPanel.Visibility = Visibility.Collapsed;
+                SettingsButton.Visibility = Visibility.Collapsed;
+                TimerViewbox.Margin = new Thickness(0);
+                
+                // Make timer text larger in compact mode
+                TimerText.FontSize = 28;
+                PhaseText.Visibility = Visibility.Collapsed;
+                ProgressRing.Width = 70;
+                ProgressRing.Height = 70;
+            }
+            else
+            {
+                // Switch to normal mode
+                appWindow.MoveAndResize(normalSize);
+                TitleTextBlock.Visibility = Visibility.Visible;
+                StatusBorder.Visibility = Visibility.Visible;
+                ControlButtonsPanel.Visibility = Visibility.Visible;
+                SettingsButton.Visibility = Visibility.Visible;
+                TimerViewbox.Margin = new Thickness(0, 12, 0, 12);
+                
+                // Restore timer text size
+                TimerText.FontSize = 32;
+                PhaseText.Visibility = Visibility.Visible;
+                ProgressRing.Width = 120;
+                ProgressRing.Height = 120;
             }
         }
 

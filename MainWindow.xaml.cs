@@ -1,218 +1,169 @@
 using Microsoft.UI;
-using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using System;
-using System.Runtime.InteropServices;
-using Windows.Media.Core;
-using Windows.Media.Playback;
-using WinRT.Interop;
-using Windows.Graphics;
+using EyeCareReminder.Models;
+using EyeCareReminder.Services;
+using EyeCareReminder.Helpers;
 
 namespace EyeCareReminder
 {
+    /// <summary>
+    /// Main window for the Eye Care Reminder application
+    /// </summary>
     public sealed partial class MainWindow : Window
     {
-        // Timer settings (in seconds)
-        private int workDuration = 20 * 60; // 20 minutes
-        private int restDuration = 20; // 20 seconds
+        // Services
+        private readonly TimerManager _timerManager;
+        private readonly SettingsService _settingsService;
+        private readonly WindowManager _windowManager;
+        private NotificationService _notificationService = default!;
+        private UIModeManager _uiModeManager = default!;
         
-        // Current state
-        private int remainingSeconds;
-        private int totalSeconds;
-        private bool isWorkPhase = true;
-        private bool isRunning = false;
-        
-        // Timer
-        private DispatcherTimer timer = default!;
-        
-        // Window handle for topmost
-        private IntPtr hWnd;
-        private AppWindow appWindow = default!;
-        
-        // Window size states
-        private RectInt32 normalSize;
-        private RectInt32 miniSize;
-        private bool isMiniMode = false;
+        // Settings
+        private TimerSettings _settings;
 
         public MainWindow()
         {
             this.InitializeComponent();
-            InitializeWindow();
-            InitializeTimer();
-            ResetTimer();
+            
+            // Initialize settings
+            _settings = new TimerSettings();
+            _settingsService = new SettingsService();
+            
+            // Initialize services
+            _timerManager = new TimerManager(_settings);
+            _windowManager = new WindowManager(this);
+            
+            // Load saved settings
+            LoadSettingsAsync();
+            
+            // Setup event handlers
+            SetupEventHandlers();
         }
 
-        private void InitializeWindow()
+        /// <summary>
+        /// Loads settings asynchronously after window is initialized
+        /// </summary>
+        private async void LoadSettingsAsync()
         {
-            // Get window handle
-            hWnd = WindowNative.GetWindowHandle(this);
-            var windowId = Win32Interop.GetWindowIdFromWindow(hWnd);
-            appWindow = AppWindow.GetFromWindowId(windowId);
-
-            // Set window to always on top
-            SetWindowTopMost(true);
-
-            // Center the window and set sizes
-            if (appWindow != null)
+            try
             {
-                var displayArea = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
-                var workArea = displayArea.WorkArea;
-                
-                // Normal size
-                var normalWidth = 320;
-                var normalHeight = 280;
-                var x = (workArea.Width - normalWidth) / 2;
-                var y = (workArea.Height - normalHeight) / 2;
-                
-                normalSize = new RectInt32(x, y, normalWidth, normalHeight);
-                
-                // Mini mode size (small timer display only) - positioned in bottom right corner
-                var miniWidth = 180;
-                var miniHeight = 80;
-                miniSize = new RectInt32(workArea.Width - miniWidth - 20, workArea.Height - miniHeight - 60, miniWidth, miniHeight);
-                
-                appWindow.MoveAndResize(normalSize);
-                
-                // Listen for window resize
-                appWindow.Changed += AppWindow_Changed;
+                _settings = await _settingsService.LoadSettingsAsync();
+                _timerManager.UpdateSettings(_settings);
+                UpdateDisplay(_timerManager);
             }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading settings: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Sets up all event handlers
+        /// </summary>
+        private void SetupEventHandlers()
+        {
+            // Timer events
+            _timerManager.StateChanged += OnTimerStateChanged;
+            _timerManager.PhaseCompleted += OnPhaseCompleted;
             
-            // Add double-click handler to switch modes
+            // Window events
             this.Content.DoubleTapped += Content_DoubleTapped;
+            this.Activated += Window_Activated;
             
-            // Initialize mini mode button text
-            UpdateMiniModeButtonText();
+            // Keyboard shortcuts
+            this.Content.KeyDown += Content_KeyDown;
         }
 
-        private void Content_DoubleTapped(object sender, Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs e)
+        /// <summary>
+        /// Initializes services that require XamlRoot after window activation
+        /// </summary>
+        private void Window_Activated(object sender, Microsoft.UI.Xaml.WindowActivatedEventArgs e)
         {
-            ToggleMiniMode();
-        }
-
-        private void UpdateMiniModeButtonText()
-        {
-            if (MiniModeButton != null)
-            {
-                MiniModeButton.Content = isMiniMode ? "🖥️ Normal Mode" : "🪟 Mini Mode";
-            }
-        }
-
-        private void MiniModeButton_Click(object sender, RoutedEventArgs e)
-        {
-            ToggleMiniMode();
-        }
-
-        private void AppWindow_Changed(AppWindow sender, AppWindowChangedEventArgs args)
-        {
-            // Keep window always on top
-            if (args.DidPresenterChange || args.DidSizeChange)
-            {
-                SetWindowTopMost(true);
-            }
-        }
-
-        private void ToggleMiniMode()
-        {
-            isMiniMode = !isMiniMode;
-            UpdateMiniModeButtonText();
+            // Initialize only once
+            if (_notificationService != null) return;
             
-            if (isMiniMode)
+            _notificationService = new NotificationService(this.Content.XamlRoot);
+            
+            _uiModeManager = new UIModeManager(
+                normalModeElements: new UIElement[] 
+                { 
+                    TitleTextBlock, 
+                    StatusBorder, 
+                    ControlButtonsPanel, 
+                    MiniModeButton, 
+                    SettingsButton 
+                },
+                timerContainer: TimerViewbox,
+                timerText: TimerText,
+                phaseText: PhaseText,
+                progressRing: ProgressRing,
+                miniModeButton: MiniModeButton
+            );
+        }
+
+        /// <summary>
+        /// Handles keyboard shortcuts
+        /// </summary>
+        private void Content_KeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            // Ctrl+Space: Start/Pause
+            if (e.Key == Windows.System.VirtualKey.Space && 
+                Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
+                    .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down))
             {
-                // Switch to mini mode - show only timer
-                appWindow.MoveAndResize(miniSize);
-                // Hide all UI elements except timer
-                TitleTextBlock.Visibility = Visibility.Collapsed;
-                StatusBorder.Visibility = Visibility.Collapsed;
-                ControlButtonsPanel.Visibility = Visibility.Collapsed;
-                MiniModeButton.Visibility = Visibility.Collapsed;
-                SettingsButton.Visibility = Visibility.Collapsed;
-                
-                // Adjust timer for mini mode - center it with minimal padding
-                TimerViewbox.Margin = new Thickness(4);
-                TimerViewbox.VerticalAlignment = VerticalAlignment.Center;
-                TimerViewbox.HorizontalAlignment = HorizontalAlignment.Center;
-                
-                // Make timer text larger and more prominent for mini mode
-                TimerText.FontSize = 28;
-                TimerText.FontWeight = new Windows.UI.Text.FontWeight(700);
-                PhaseText.Visibility = Visibility.Collapsed;
-                ProgressRing.Width = 50;
-                ProgressRing.Height = 50;
+                if (_timerManager.IsRunning)
+                {
+                    _timerManager.Pause();
+                }
+                else
+                {
+                    _timerManager.Start();
+                }
+                e.Handled = true;
             }
-            else
+            // Ctrl+R: Reset
+            else if (e.Key == Windows.System.VirtualKey.R && 
+                Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
+                    .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down))
             {
-                // Switch to normal mode
-                appWindow.MoveAndResize(normalSize);
-                // Show all UI elements
-                TitleTextBlock.Visibility = Visibility.Visible;
-                StatusBorder.Visibility = Visibility.Visible;
-                ControlButtonsPanel.Visibility = Visibility.Visible;
-                MiniModeButton.Visibility = Visibility.Visible;
-                SettingsButton.Visibility = Visibility.Visible;
-                
-                // Restore normal timer layout
-                TimerViewbox.Margin = new Thickness(0, 12, 0, 12);
-                TimerViewbox.VerticalAlignment = VerticalAlignment.Stretch;
-                TimerViewbox.HorizontalAlignment = HorizontalAlignment.Stretch;
-                
-                // Restore timer text size and weight
-                TimerText.FontSize = 32;
-                TimerText.FontWeight = new Windows.UI.Text.FontWeight(700);
-                PhaseText.Visibility = Visibility.Visible;
-                ProgressRing.Width = 120;
-                ProgressRing.Height = 120;
+                _timerManager.ResetToWorkPhase();
+                e.Handled = true;
             }
-        }
-
-        [DllImport("user32.dll")]
-        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
-
-        private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
-        private const uint SWP_NOMOVE = 0x0002;
-        private const uint SWP_NOSIZE = 0x0001;
-
-        private void SetWindowTopMost(bool topmost)
-        {
-            SetWindowPos(hWnd, topmost ? HWND_TOPMOST : IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-        }
-
-        private void InitializeTimer()
-        {
-            timer = new DispatcherTimer
+            // Ctrl+M: Toggle mini mode
+            else if (e.Key == Windows.System.VirtualKey.M && 
+                Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
+                    .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down))
             {
-                Interval = TimeSpan.FromSeconds(1)
-            };
-            timer.Tick += Timer_Tick;
-        }
-
-        private void Timer_Tick(object? sender, object e)
-        {
-            remainingSeconds--;
-            UpdateDisplay();
-
-            if (remainingSeconds <= 0)
-            {
-                timer.Stop();
-                isRunning = false;
-                OnPhaseComplete();
+                ToggleMiniMode();
+                e.Handled = true;
             }
         }
 
-        private void UpdateDisplay()
+        /// <summary>
+        /// Handles timer state changes
+        /// </summary>
+        private void OnTimerStateChanged(object? sender, TimerStateChangedEventArgs e)
+        {
+            UpdateDisplay(e);
+        }
+
+        /// <summary>
+        /// Updates the UI display based on timer state
+        /// </summary>
+        private void UpdateDisplay(TimerStateChangedEventArgs state)
         {
             // Update timer text
-            int minutes = remainingSeconds / 60;
-            int seconds = remainingSeconds % 60;
-            TimerText.Text = $"{minutes:D2}:{seconds:D2}";
+            TimerText.Text = _timerManager.GetFormattedTime();
 
             // Update progress ring
-            double progress = ((double)(totalSeconds - remainingSeconds) / totalSeconds) * 100;
-            ProgressRing.Value = progress;
+            ProgressRing.Value = state.ProgressPercentage;
 
             // Update status and colors based on phase
-            if (isWorkPhase)
+            if (state.IsWorkPhase)
             {
                 StatusText.Text = "💼 Work Time";
                 PhaseText.Text = "Minutes Left";
@@ -226,138 +177,185 @@ namespace EyeCareReminder
                 StatusText.Foreground = new SolidColorBrush(Colors.MediumSeaGreen);
                 ProgressRing.Foreground = new SolidColorBrush(Colors.MediumSeaGreen);
             }
+
+            // Update button states
+            StartButton.IsEnabled = !state.IsRunning;
+            PauseButton.IsEnabled = state.IsRunning;
         }
 
-        private async void OnPhaseComplete()
+        /// <summary>
+        /// Overload for TimerManager
+        /// </summary>
+        private void UpdateDisplay(TimerManager timer)
         {
-            // Show notification
-            var dialog = new ContentDialog
+            var state = new TimerStateChangedEventArgs
             {
-                XamlRoot = this.Content.XamlRoot,
-                Title = isWorkPhase ? "⏰ Time to Rest!" : "✅ Rest Complete!",
-                Content = isWorkPhase 
-                    ? "Take a 20-second break and look at something 20 feet away!" 
-                    : "Great job! Starting next work session.",
-                CloseButtonText = "OK",
-                DefaultButton = ContentDialogButton.Close
+                RemainingSeconds = timer.RemainingSeconds,
+                TotalSeconds = timer.TotalSeconds,
+                IsWorkPhase = timer.IsWorkPhase,
+                IsRunning = timer.IsRunning,
+                ProgressPercentage = timer.ProgressPercentage
             };
+            UpdateDisplay(state);
+        }
 
-            // Play notification sound
-            try
-            {
-                var mediaPlayer = new MediaPlayer();
-                mediaPlayer.Source = MediaSource.CreateFromUri(
-                    new Uri("ms-winsoundevent:Notification.Default"));
-                mediaPlayer.Play();
-            }
-            catch { }
-
-            await dialog.ShowAsync();
+        /// <summary>
+        /// Handles phase completion
+        /// </summary>
+        private async void OnPhaseCompleted(object? sender, EventArgs e)
+        {
+            bool wasWorkPhase = _timerManager.IsWorkPhase;
+            
+            // Show notification
+            await _notificationService.ShowPhaseCompletionAsync(wasWorkPhase);
 
             // Switch phase and auto-start
-            isWorkPhase = !isWorkPhase;
-            ResetTimer();
-            StartTimer();
+            _timerManager.SwitchPhase();
+            _timerManager.Start();
         }
 
-        private void ResetTimer()
+        /// <summary>
+        /// Toggles between normal and mini mode
+        /// </summary>
+        private void ToggleMiniMode()
         {
-            if (isWorkPhase)
+            if (_uiModeManager == null) return;
+
+            _uiModeManager.ToggleMode();
+            
+            if (_uiModeManager.IsMiniMode)
             {
-                remainingSeconds = workDuration;
-                totalSeconds = workDuration;
+                _windowManager.SwitchToMiniMode();
             }
             else
             {
-                remainingSeconds = restDuration;
-                totalSeconds = restDuration;
+                _windowManager.SwitchToNormalMode();
             }
-            
-            UpdateDisplay();
         }
 
-        private void StartTimer()
+        /// <summary>
+        /// Double-click handler to toggle mini mode
+        /// </summary>
+        private void Content_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
-            isRunning = true;
-            timer.Start();
-            StartButton.IsEnabled = false;
-            PauseButton.IsEnabled = true;
+            ToggleMiniMode();
         }
 
-        private void StopTimer()
-        {
-            isRunning = false;
-            timer.Stop();
-            StartButton.IsEnabled = true;
-            PauseButton.IsEnabled = false;
-        }
+        // Button Click Handlers
 
         private void StartButton_Click(object sender, RoutedEventArgs e)
         {
-            StartTimer();
+            _timerManager.Start();
         }
 
         private void PauseButton_Click(object sender, RoutedEventArgs e)
         {
-            StopTimer();
+            _timerManager.Pause();
         }
 
         private void ResetButton_Click(object sender, RoutedEventArgs e)
         {
-            StopTimer();
-            isWorkPhase = true;
-            ResetTimer();
+            _timerManager.ResetToWorkPhase();
+        }
+
+        private void MiniModeButton_Click(object sender, RoutedEventArgs e)
+        {
+            ToggleMiniMode();
         }
 
         private async void SettingsButton_Click(object sender, RoutedEventArgs e)
+        {
+            await ShowSettingsDialogAsync();
+        }
+
+        /// <summary>
+        /// Shows the settings dialog
+        /// </summary>
+        private async System.Threading.Tasks.Task ShowSettingsDialogAsync()
         {
             var dialog = new ContentDialog
             {
                 XamlRoot = this.Content.XamlRoot,
                 Title = "⚙️ Settings",
-                CloseButtonText = "Close"
+                CloseButtonText = "Close",
+                PrimaryButtonText = "Save",
+                DefaultButton = ContentDialogButton.Primary
             };
 
+            var panel = CreateSettingsPanel(out var workSlider, out var restSlider);
+            dialog.Content = panel;
+
+            var result = await dialog.ShowAsync();
+
+            if (result == ContentDialogResult.Primary)
+            {
+                await SaveSettingsAsync((int)workSlider.Value, (int)restSlider.Value);
+            }
+        }
+
+        /// <summary>
+        /// Creates the settings panel UI
+        /// </summary>
+        private StackPanel CreateSettingsPanel(out Slider workSlider, out Slider restSlider)
+        {
             var panel = new StackPanel { Spacing = 16 };
-            
+
             // Work duration setting
             var workPanel = new StackPanel { Spacing = 8 };
-            workPanel.Children.Add(new TextBlock { Text = "Work Duration (minutes):", FontWeight = new Windows.UI.Text.FontWeight(600) });
-            var workSlider = new Slider
+            workPanel.Children.Add(new TextBlock 
+            { 
+                Text = "Work Duration (minutes):", 
+                FontWeight = new Windows.UI.Text.FontWeight(600) 
+            });
+            
+            workSlider = new Slider
             {
-                Minimum = 5,
-                Maximum = 60,
-                Value = workDuration / 60,
+                Minimum = TimerSettings.MinWorkMinutes,
+                Maximum = TimerSettings.MaxWorkMinutes,
+                Value = _settings.WorkDurationMinutes,
                 StepFrequency = 5,
                 TickFrequency = 5,
                 TickPlacement = Microsoft.UI.Xaml.Controls.Primitives.TickPlacement.BottomRight
             };
-            var workValueText = new TextBlock { Text = $"{workDuration / 60} minutes" };
+            
+            var workValueText = new TextBlock { Text = $"{_settings.WorkDurationMinutes} minutes" };
             workSlider.ValueChanged += (s, e) => workValueText.Text = $"{e.NewValue} minutes";
+            
             workPanel.Children.Add(workSlider);
             workPanel.Children.Add(workValueText);
-            
+
             // Rest duration setting
             var restPanel = new StackPanel { Spacing = 8 };
-            restPanel.Children.Add(new TextBlock { Text = "Rest Duration (seconds):", FontWeight = new Windows.UI.Text.FontWeight(600) });
-            var restSlider = new Slider
+            restPanel.Children.Add(new TextBlock 
+            { 
+                Text = "Rest Duration (seconds):", 
+                FontWeight = new Windows.UI.Text.FontWeight(600) 
+            });
+            
+            restSlider = new Slider
             {
-                Minimum = 10,
-                Maximum = 60,
-                Value = restDuration,
+                Minimum = TimerSettings.MinRestSeconds,
+                Maximum = TimerSettings.MaxRestSeconds,
+                Value = _settings.RestDurationSeconds,
                 StepFrequency = 10,
                 TickFrequency = 10,
                 TickPlacement = Microsoft.UI.Xaml.Controls.Primitives.TickPlacement.BottomRight
             };
-            var restValueText = new TextBlock { Text = $"{restDuration} seconds" };
+            
+            var restValueText = new TextBlock { Text = $"{_settings.RestDurationSeconds} seconds" };
             restSlider.ValueChanged += (s, e) => restValueText.Text = $"{e.NewValue} seconds";
+            
             restPanel.Children.Add(restSlider);
             restPanel.Children.Add(restValueText);
 
             // Info text
             var infoText = new TextBlock
             {
-                Text = "📝 20-20-20 Rule: Every 20 minutes, take a 20-second break and look at something 20 feet away.",
+                Text = "📝 20-20-20 Rule: Every 20 minutes, take a 20-second break and look at something 20 feet away.\n\n" +
+                       "⌨️ Keyboard Shortcuts:\n" +
+                       "Ctrl+Space: Start/Pause\n" +
+                       "Ctrl+R: Reset\n" +
+                       "Ctrl+M: Toggle Mini Mode",
                 TextWrapping = TextWrapping.Wrap,
                 Opacity = 0.7,
                 Margin = new Thickness(0, 8, 0, 0)
@@ -367,17 +365,33 @@ namespace EyeCareReminder
             panel.Children.Add(restPanel);
             panel.Children.Add(infoText);
 
-            dialog.Content = panel;
-            
-            var result = await dialog.ShowAsync();
-            
-            // Apply settings
-            workDuration = (int)workSlider.Value * 60;
-            restDuration = (int)restSlider.Value;
-            
-            if (!isRunning)
+            return panel;
+        }
+
+        /// <summary>
+        /// Saves settings and updates the timer
+        /// </summary>
+        private async System.Threading.Tasks.Task SaveSettingsAsync(int workMinutes, int restSeconds)
+        {
+            try
             {
-                ResetTimer();
+                _settings.WorkDurationMinutes = workMinutes;
+                _settings.RestDurationSeconds = restSeconds;
+                
+                await _settingsService.SaveSettingsAsync(_settings);
+                _timerManager.UpdateSettings(_settings);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error saving settings: {ex.Message}");
+                
+                if (_notificationService != null)
+                {
+                    await _notificationService.ShowNotificationAsync(
+                        "❌ Error",
+                        "Failed to save settings. Please try again."
+                    );
+                }
             }
         }
     }

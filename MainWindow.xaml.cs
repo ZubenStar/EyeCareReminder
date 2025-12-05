@@ -1,0 +1,280 @@
+using Microsoft.UI;
+using Microsoft.UI.Windowing;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using System;
+using System.Runtime.InteropServices;
+using Windows.Media.Core;
+using Windows.Media.Playback;
+using WinRT.Interop;
+
+namespace EyeCareReminder
+{
+    public sealed partial class MainWindow : Window
+    {
+        // Timer settings (in seconds)
+        private int workDuration = 20 * 60; // 20 minutes
+        private int restDuration = 20; // 20 seconds
+        
+        // Current state
+        private int remainingSeconds;
+        private int totalSeconds;
+        private bool isWorkPhase = true;
+        private bool isRunning = false;
+        
+        // Timer
+        private DispatcherTimer timer = default!;
+        
+        // Window handle for topmost
+        private IntPtr hWnd;
+        private AppWindow appWindow = default!;
+
+        public MainWindow()
+        {
+            this.InitializeComponent();
+            InitializeWindow();
+            InitializeTimer();
+            ResetTimer();
+        }
+
+        private void InitializeWindow()
+        {
+            // Get window handle
+            hWnd = WindowNative.GetWindowHandle(this);
+            var windowId = Win32Interop.GetWindowIdFromWindow(hWnd);
+            appWindow = AppWindow.GetFromWindowId(windowId);
+
+            // Set window to always on top
+            SetWindowTopMost(true);
+
+            // Center the window
+            if (appWindow != null)
+            {
+                var displayArea = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
+                var workArea = displayArea.WorkArea;
+                var width = 320;
+                var height = 280;
+                var x = (workArea.Width - width) / 2;
+                var y = (workArea.Height - height) / 2;
+                
+                appWindow.MoveAndResize(new Windows.Graphics.RectInt32(x, y, width, height));
+            }
+        }
+
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        private const uint SWP_NOMOVE = 0x0002;
+        private const uint SWP_NOSIZE = 0x0001;
+
+        private void SetWindowTopMost(bool topmost)
+        {
+            SetWindowPos(hWnd, topmost ? HWND_TOPMOST : IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+        }
+
+        private void InitializeTimer()
+        {
+            timer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(1)
+            };
+            timer.Tick += Timer_Tick;
+        }
+
+        private void Timer_Tick(object? sender, object e)
+        {
+            remainingSeconds--;
+            UpdateDisplay();
+
+            if (remainingSeconds <= 0)
+            {
+                timer.Stop();
+                isRunning = false;
+                OnPhaseComplete();
+            }
+        }
+
+        private void UpdateDisplay()
+        {
+            // Update timer text
+            int minutes = remainingSeconds / 60;
+            int seconds = remainingSeconds % 60;
+            TimerText.Text = $"{minutes:D2}:{seconds:D2}";
+
+            // Update progress ring
+            double progress = ((double)(totalSeconds - remainingSeconds) / totalSeconds) * 100;
+            ProgressRing.Value = progress;
+
+            // Update status and colors based on phase
+            if (isWorkPhase)
+            {
+                StatusText.Text = "💼 Work Time";
+                PhaseText.Text = "Minutes Left";
+                StatusText.Foreground = new SolidColorBrush(Colors.DodgerBlue);
+                ProgressRing.Foreground = new SolidColorBrush(Colors.DodgerBlue);
+            }
+            else
+            {
+                StatusText.Text = "😌 Rest Time - Look Away!";
+                PhaseText.Text = "Seconds Left";
+                StatusText.Foreground = new SolidColorBrush(Colors.MediumSeaGreen);
+                ProgressRing.Foreground = new SolidColorBrush(Colors.MediumSeaGreen);
+            }
+        }
+
+        private async void OnPhaseComplete()
+        {
+            // Show notification
+            var dialog = new ContentDialog
+            {
+                XamlRoot = this.Content.XamlRoot,
+                Title = isWorkPhase ? "⏰ Time to Rest!" : "✅ Rest Complete!",
+                Content = isWorkPhase 
+                    ? "Take a 20-second break and look at something 20 feet away!" 
+                    : "Great job! Starting next work session.",
+                CloseButtonText = "OK",
+                DefaultButton = ContentDialogButton.Close
+            };
+
+            // Play notification sound
+            try
+            {
+                var mediaPlayer = new MediaPlayer();
+                mediaPlayer.Source = MediaSource.CreateFromUri(
+                    new Uri("ms-winsoundevent:Notification.Default"));
+                mediaPlayer.Play();
+            }
+            catch { }
+
+            await dialog.ShowAsync();
+
+            // Switch phase and auto-start
+            isWorkPhase = !isWorkPhase;
+            ResetTimer();
+            StartTimer();
+        }
+
+        private void ResetTimer()
+        {
+            if (isWorkPhase)
+            {
+                remainingSeconds = workDuration;
+                totalSeconds = workDuration;
+            }
+            else
+            {
+                remainingSeconds = restDuration;
+                totalSeconds = restDuration;
+            }
+            
+            UpdateDisplay();
+        }
+
+        private void StartTimer()
+        {
+            isRunning = true;
+            timer.Start();
+            StartButton.IsEnabled = false;
+            PauseButton.IsEnabled = true;
+        }
+
+        private void StopTimer()
+        {
+            isRunning = false;
+            timer.Stop();
+            StartButton.IsEnabled = true;
+            PauseButton.IsEnabled = false;
+        }
+
+        private void StartButton_Click(object sender, RoutedEventArgs e)
+        {
+            StartTimer();
+        }
+
+        private void PauseButton_Click(object sender, RoutedEventArgs e)
+        {
+            StopTimer();
+        }
+
+        private void ResetButton_Click(object sender, RoutedEventArgs e)
+        {
+            StopTimer();
+            isWorkPhase = true;
+            ResetTimer();
+        }
+
+        private async void SettingsButton_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new ContentDialog
+            {
+                XamlRoot = this.Content.XamlRoot,
+                Title = "⚙️ Settings",
+                CloseButtonText = "Close"
+            };
+
+            var panel = new StackPanel { Spacing = 16 };
+            
+            // Work duration setting
+            var workPanel = new StackPanel { Spacing = 8 };
+            workPanel.Children.Add(new TextBlock { Text = "Work Duration (minutes):", FontWeight = new Windows.UI.Text.FontWeight(600) });
+            var workSlider = new Slider
+            {
+                Minimum = 5,
+                Maximum = 60,
+                Value = workDuration / 60,
+                StepFrequency = 5,
+                TickFrequency = 5,
+                TickPlacement = Microsoft.UI.Xaml.Controls.Primitives.TickPlacement.BottomRight
+            };
+            var workValueText = new TextBlock { Text = $"{workDuration / 60} minutes" };
+            workSlider.ValueChanged += (s, e) => workValueText.Text = $"{e.NewValue} minutes";
+            workPanel.Children.Add(workSlider);
+            workPanel.Children.Add(workValueText);
+            
+            // Rest duration setting
+            var restPanel = new StackPanel { Spacing = 8 };
+            restPanel.Children.Add(new TextBlock { Text = "Rest Duration (seconds):", FontWeight = new Windows.UI.Text.FontWeight(600) });
+            var restSlider = new Slider
+            {
+                Minimum = 10,
+                Maximum = 60,
+                Value = restDuration,
+                StepFrequency = 10,
+                TickFrequency = 10,
+                TickPlacement = Microsoft.UI.Xaml.Controls.Primitives.TickPlacement.BottomRight
+            };
+            var restValueText = new TextBlock { Text = $"{restDuration} seconds" };
+            restSlider.ValueChanged += (s, e) => restValueText.Text = $"{e.NewValue} seconds";
+            restPanel.Children.Add(restSlider);
+            restPanel.Children.Add(restValueText);
+
+            // Info text
+            var infoText = new TextBlock
+            {
+                Text = "📝 20-20-20 Rule: Every 20 minutes, take a 20-second break and look at something 20 feet away.",
+                TextWrapping = TextWrapping.Wrap,
+                Opacity = 0.7,
+                Margin = new Thickness(0, 8, 0, 0)
+            };
+
+            panel.Children.Add(workPanel);
+            panel.Children.Add(restPanel);
+            panel.Children.Add(infoText);
+
+            dialog.Content = panel;
+            
+            var result = await dialog.ShowAsync();
+            
+            // Apply settings
+            workDuration = (int)workSlider.Value * 60;
+            restDuration = (int)restSlider.Value;
+            
+            if (!isRunning)
+            {
+                ResetTimer();
+            }
+        }
+    }
+}
